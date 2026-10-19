@@ -30,3 +30,16 @@
 *.exe
 *.out
 *.app
+
+# .NET build output and local editor settings
+bin/
+obj/
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Local source assignment and temporary files
+/Конф-Управ-2.pdf
+/tmp/
