@@ -1,21 +1,105 @@
 using System;
 using System.IO;
+using System.Net;
+using System.Net.Http;
+using System.Threading;
+using System.Collections.Generic;
+using System.IO.Compression;
+using System.Text;
 
 namespace DependencyVisualizer.Tests
 {
-    /// <summary>Консольные проверки этапа 1 без сторонних библиотек.</summary>
+    /// <summary>Консольные проверки этапов 1–2 без сторонних библиотек.</summary>
     internal static class Program
     {
         private static int failures;
         private static int checks;
 
+        /// <summary>Возвращает индекс без сети для проверки полного пути приложения.</summary>
+        private sealed class IndexHandler : HttpMessageHandler
+        {
+            /// <summary>Формирует обычный или сжатый HTTP-ответ.</summary>
+            protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken token)
+            {
+                byte[] data = Encoding.UTF8.GetBytes("Package: bash\nVersion: 1.0-1\n"
+                    + "Depends: libc6 (>= 2.38) | libc6-alt\n");
+                if (request.RequestUri.AbsolutePath.EndsWith(".gz"))
+                {
+                    using (MemoryStream buffer = new MemoryStream())
+                    {
+                        using (GZipStream archive = new GZipStream(buffer, CompressionMode.Compress, true))
+                        {
+                            archive.Write(data);
+                        }
+                        data = buffer.ToArray();
+                    }
+                }
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(data)
+                };
+            }
+
+            /// <summary>Запрещает незапланированный асинхронный путь в тестах.</summary>
+            protected override System.Threading.Tasks.Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request, CancellationToken token)
+            {
+                throw new NotSupportedException();
+            }
+        }
+
+        /// <summary>Проверяет выбор версии, переносы, альтернативы и отсутствие зависимостей.</summary>
+        private static void CheckIndex()
+        {
+            const string index = "Package: bash\nVersion: 0.1\nDepends: wrong\n\n"
+                + "Package: bash\nVersion: 1.0-1\nPre-Depends: base\n"
+                + "Depends: libc6:any (>= 2.38),\n libtinfo6 | fallback\nRecommends: ignored\n\n"
+                + "Package: empty\nVersion: 1.0\n";
+            List<string> result = PackageIndex.Read(new StringReader(index), "bash", "1.0-1");
+            Assert(string.Join(";", result) == "base;libc6:any (>= 2.38);libtinfo6 | fallback", "deb822");
+            Assert(PackageIndex.Read(new StringReader(index), "empty", "1.0").Count == 0, "empty");
+            CheckIndexError(index, "bash", "9.0", "--version");
+            CheckIndexError(index, "missing", "1.0", "--package");
+            CheckIndexError("broken", "bash", "1.0", "Packages");
+            Assert(Repository.GetIndexAddress("https://example.org/ubuntu").AbsolutePath
+                == "/ubuntu/dists/noble/main/binary-amd64/Packages.gz", "root URL");
+            Assert(Repository.GetIndexAddress("https://example.org/Packages").AbsolutePath
+                == "/Packages", "index URL");
+        }
+
+        /// <summary>Проверяет диагностические сообщения парсера.</summary>
+        private static void CheckIndexError(string index, string package, string version, string expected)
+        {
+            try
+            {
+                PackageIndex.Read(new StringReader(index), package, version);
+                Assert(false, expected);
+            }
+            catch (Exception exception) when (exception is ArgumentException || exception is InvalidDataException)
+            {
+                Assert(exception.Message.Contains(expected), expected);
+            }
+        }
+
+        /// <summary>Учитывает результат проверки.</summary>
+        private static void Assert(bool condition, string name)
+        {
+            checks++;
+            if (!condition)
+            {
+                failures++;
+                Console.WriteLine("FAIL: " + name);
+            }
+        }
+
         /// <summary>Запускает проверки успешного ввода и ошибок всех параметров.</summary>
         private static int Main()
         {
-            string expected = "package=bash" + Environment.NewLine
-                + "repository=https://archive.ubuntu.com/ubuntu/" + Environment.NewLine
-                + "test-mode=false" + Environment.NewLine + "version=1.0-1" + Environment.NewLine;
-            Check(ValidArgs(), 0, expected);
+            Check(ValidArgs(), 0, "libc6 (>= 2.38) | libc6-alt");
+            string[] plain = ValidArgs();
+            plain[3] = "https://example.org/Packages";
+            Check(plain, 0, "libc6 (>= 2.38) | libc6-alt");
+            CheckIndex();
             Check(new string[] { "--help" }, 0, "--package");
             Check(new string[0], 1, "--package");
             Check(new string[] { "--unknown", "value" }, 1, "Неизвестная");
@@ -106,7 +190,7 @@ namespace DependencyVisualizer.Tests
         {
             StringWriter output = new StringWriter();
             StringWriter error = new StringWriter();
-            int code = DependencyVisualizer.Program.Run(args, output, error);
+            int code = DependencyVisualizer.Program.Run(args, output, error, new HttpClient(new IndexHandler()));
             string result = expectedCode == 0 ? output.ToString() : error.ToString();
             string other = expectedCode == 0 ? error.ToString() : output.ToString();
             checks++;
