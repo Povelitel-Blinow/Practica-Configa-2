@@ -7,6 +7,52 @@ namespace DependencyVisualizer
     /// <summary>Самостоятельно читает записи apt в формате deb822.</summary>
     public static class PackageIndex
     {
+        /// <summary>Читает индекс один раз, выбирая точную версию корневого пакета.</summary>
+        public static Dictionary<string, List<string>> ReadGraph(TextReader reader, string package, string version)
+        {
+            Dictionary<string, List<string>> nodes = new Dictionary<string, List<string>>();
+            bool packageFound = false;
+            Dictionary<string, string> fields;
+            while ((fields = ReadRecord(reader)) != null)
+            {
+                if (!fields.ContainsKey("Package") || !fields.ContainsKey("Version"))
+                    throw new InvalidDataException("В записи индекса отсутствует Package или Version.");
+                string name = fields["Package"];
+                if (name == package)
+                {
+                    packageFound = true;
+                    if (fields["Version"] != version) continue;
+                }
+                if (nodes.ContainsKey(name)) continue;
+                List<string> groups = new List<string>();
+                AddDependencies(fields, "Pre-Depends", groups);
+                AddDependencies(fields, "Depends", groups);
+                nodes.Add(name, DependencyNames(groups));
+            }
+            if (!nodes.ContainsKey(package))
+                throw new ArgumentException(packageFound ? "--version: версия не найдена: " + version
+                    : "--package: пакет не найден: " + package);
+            return nodes;
+        }
+
+        /// <summary>Включает все альтернативы как возможные рёбра, убирая ограничения и архитектуру.</summary>
+        private static List<string> DependencyNames(List<string> groups)
+        {
+            List<string> names = new List<string>();
+            foreach (string group in groups)
+            {
+                foreach (string alternative in group.Split('|'))
+                {
+                    string name = alternative.Trim();
+                    int end = name.IndexOfAny(new char[] { ' ', '\t', ':', '(', '[' });
+                    if (end >= 0) name = name.Substring(0, end);
+                    if (name.Length == 0) throw new InvalidDataException("Пустое имя зависимости.");
+                    if (!names.Contains(name)) names.Add(name);
+                }
+            }
+            return names;
+        }
+
         /// <summary>Находит точную версию и возвращает группы прямых зависимостей.</summary>
         public static List<string> Read(TextReader reader, string package, string version)
         {

@@ -22,7 +22,7 @@ namespace DependencyVisualizer
         }
 
         /// <summary>Загружает и читает индекс; клиент передаётся также для автономных тестов.</summary>
-        public static List<string> GetDependencies(Settings settings, HttpClient client)
+        public static Dictionary<string, List<string>> GetGraph(Settings settings, HttpClient client)
         {
             Uri address = GetIndexAddress(settings.Repository);
             using (HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, address))
@@ -36,12 +36,12 @@ namespace DependencyVisualizer
                         using (GZipStream archive = new GZipStream(source, CompressionMode.Decompress))
                         using (StreamReader reader = new StreamReader(archive))
                         {
-                            return PackageIndex.Read(reader, settings.Package, settings.Version);
+                            return PackageIndex.ReadGraph(reader, settings.Package, settings.Version);
                         }
                     }
                     using (StreamReader reader = new StreamReader(source))
                     {
-                        return PackageIndex.Read(reader, settings.Package, settings.Version);
+                        return PackageIndex.ReadGraph(reader, settings.Package, settings.Version);
                     }
                 }
             }

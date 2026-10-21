@@ -9,7 +9,7 @@ using System.Text;
 
 namespace DependencyVisualizer.Tests
 {
-    /// <summary>Консольные проверки этапов 1–2 без сторонних библиотек.</summary>
+    /// <summary>Консольные проверки этапов 1–3 без сторонних библиотек.</summary>
     internal static class Program
     {
         private static int failures;
@@ -22,7 +22,9 @@ namespace DependencyVisualizer.Tests
             protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken token)
             {
                 byte[] data = Encoding.UTF8.GetBytes("Package: bash\nVersion: 1.0-1\n"
-                    + "Depends: libc6 (>= 2.38) | libc6-alt\n");
+                    + "Depends: libc6 (>= 2.38) | libc6-alt\n\n"
+                    + "Package: libc6\nVersion: 2.38\nDepends: loader\n\n"
+                    + "Package: loader\nVersion: 1.0\nDepends: libc6\n");
                 if (request.RequestUri.AbsolutePath.EndsWith(".gz"))
                 {
                     using (MemoryStream buffer = new MemoryStream())
@@ -95,11 +97,12 @@ namespace DependencyVisualizer.Tests
         /// <summary>Запускает проверки успешного ввода и ошибок всех параметров.</summary>
         private static int Main()
         {
-            Check(ValidArgs(), 0, "libc6 (>= 2.38) | libc6-alt");
+            Check(ValidArgs(), 0, "bash: libc6 libc6-alt");
             string[] plain = ValidArgs();
             plain[3] = "https://example.org/Packages";
-            Check(plain, 0, "libc6 (>= 2.38) | libc6-alt");
+            Check(plain, 0, "loader: libc6");
             CheckIndex();
+            CheckGraphs();
             Check(new string[] { "--help" }, 0, "--package");
             Check(new string[0], 1, "--package");
             Check(new string[] { "--unknown", "value" }, 1, "Неизвестная");
@@ -152,7 +155,7 @@ namespace DependencyVisualizer.Tests
                 args[1] = "A";
                 args[3] = path;
                 args[5] = "true";
-                Check(args, 0, "test-mode=true");
+                Check(args, 0, "A: B");
                 args[1] = "bash";
                 Check(args, 1, "--package");
                 args[1] = "A";
@@ -165,6 +168,34 @@ namespace DependencyVisualizer.Tests
             {
                 File.Delete(path);
             }
+        }
+
+        /// <summary>Проверяет DFS, цикл, одиночную вершину и ошибочную ссылку.</summary>
+        private static void CheckGraphs()
+        {
+            const string source = "A: B C\nB: D\nC: D\nD: A\nZ:\n";
+            DependencyGraph graph = DependencyGraph.Build(TestRepository.Read(new StringReader(source)), "A");
+            StringWriter output = new StringWriter();
+            graph.Write(output);
+            Assert(output.ToString().Replace("\r", "") == "A: B C\nB: D\nD: A\nC: D\n", "DFS and cycle");
+            graph = DependencyGraph.Build(TestRepository.Read(new StringReader("A: A\n")), "A");
+            Assert(graph.Nodes.Count == 1 && graph.Nodes["A"][0] == "A", "self cycle");
+            graph = DependencyGraph.Build(TestRepository.Read(new StringReader("A:\n")), "A");
+            Assert(graph.Nodes.Count == 1 && graph.Nodes["A"].Count == 0, "single node");
+            try
+            {
+                TestRepository.Read(new StringReader("A: B\n"));
+                Assert(false, "undefined node");
+            }
+            catch (InvalidDataException)
+            {
+                Assert(true, "undefined node");
+            }
+            const string index = "Package: aa\nVersion: 1\nDepends: wrong\n\n"
+                + "Package: aa\nVersion: 2\nDepends: bb\n\nPackage: bb\nVersion: 3\nDepends: cc\n";
+            graph = DependencyGraph.Build(PackageIndex.ReadGraph(new StringReader(index), "aa", "2"), "aa");
+            Assert(graph.Nodes.Count == 3 && graph.Nodes["bb"][0] == "cc"
+                && graph.Missing.Contains("cc"), "apt version, transitivity and missing node");
         }
 
         /// <summary>Создаёт корректный набор параметров.</summary>

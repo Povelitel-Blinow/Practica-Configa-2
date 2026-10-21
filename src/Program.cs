@@ -6,7 +6,7 @@ using System.Net.Http;
 
 namespace DependencyVisualizer
 {
-    /// <summary>CLI сбора прямых зависимостей пакетов Ubuntu.</summary>
+    /// <summary>CLI построения графа зависимостей пакетов Ubuntu.</summary>
     public static class Program
     {
         /// <summary>Запускает приложение с консольным выводом.</summary>
@@ -26,7 +26,7 @@ namespace DependencyVisualizer
             }
         }
 
-        /// <summary>Выводит зависимости или ошибку; тестовый граф будет реализован на этапе 3.</summary>
+        /// <summary>Выводит достижимый граф зависимостей или сообщение об ошибке.</summary>
         public static int Run(string[] args, TextWriter output, TextWriter error, HttpClient client)
         {
             const int HelpArgumentCount = 1;
@@ -38,15 +38,14 @@ namespace DependencyVisualizer
             try
             {
                 Settings settings = CommandLine.Parse(args);
-                if (!settings.TestMode)
+                Dictionary<string, List<string>> nodes;
+                if (settings.TestMode)
                 {
-                    List<string> dependencies = Repository.GetDependencies(settings, client);
-                    output.WriteLine("Прямые зависимости " + settings.Package + " " + settings.Version + ":");
-                    if (dependencies.Count == 0) output.WriteLine("(нет)");
-                    foreach (string dependency in dependencies) output.WriteLine(dependency);
-                    return 0;
+                    using (StreamReader reader = new StreamReader(settings.Repository))
+                        nodes = TestRepository.Read(reader);
                 }
-                WriteSettings(settings, output);
+                else nodes = Repository.GetGraph(settings, client);
+                DependencyGraph.Build(nodes, settings.Package).Write(output);
                 return 0;
             }
             catch (Exception exception) when (exception is ArgumentException || exception is IOException
@@ -59,13 +58,5 @@ namespace DependencyVisualizer
             }
         }
 
-        /// <summary>Сохраняет вывод настроек первого этапа для тестового режима.</summary>
-        private static void WriteSettings(Settings settings, TextWriter output)
-        {
-            output.WriteLine("package=" + settings.Package);
-            output.WriteLine("repository=" + settings.Repository);
-            output.WriteLine("test-mode=" + (settings.TestMode ? "true" : "false"));
-            output.WriteLine("version=" + settings.Version);
-        }
     }
 }
