@@ -9,6 +9,8 @@ namespace DependencyVisualizer
     /// <summary>CLI построения графа зависимостей пакетов Ubuntu.</summary>
     public static class Program
     {
+        private const int TimeOutSeconds = 60;
+        
         /// <summary>Запускает приложение с консольным выводом.</summary>
         public static int Main(string[] args)
         {
@@ -21,16 +23,16 @@ namespace DependencyVisualizer
         {
             using (HttpClient client = new HttpClient())
             {
-                client.Timeout = TimeSpan.FromSeconds(60);
+                client.Timeout = TimeSpan.FromSeconds(TimeOutSeconds);
                 return Run(args, output, error, client);
             }
         }
 
-        /// <summary>Выводит достижимый граф зависимостей или сообщение об ошибке.</summary>
+        /// <summary>Выводит порядок загрузки зависимостей или сообщение об ошибке.</summary>
         public static int Run(string[] args, TextWriter output, TextWriter error, HttpClient client)
         {
-            const int HelpArgumentCount = 1;
-            if (args.Length == HelpArgumentCount && args[0] == "--help")
+            const int helpArgumentCount = 1;
+            if (args.Length == helpArgumentCount && args[0] == "--help")
             {
                 output.WriteLine("--package NAME --repository URL_OR_FILE --test-mode true|false --version VERSION");
                 return 0;
@@ -45,7 +47,8 @@ namespace DependencyVisualizer
                         nodes = TestRepository.Read(reader);
                 }
                 else nodes = Repository.GetGraph(settings, client);
-                DependencyGraph.Build(nodes, settings.Package).Write(output);
+                DependencyGraph graph = DependencyGraph.Build(nodes, settings.Package);
+                DownloadOrder.Build(graph, settings.Package).Write(output, graph);
                 return 0;
             }
             catch (Exception exception) when (exception is ArgumentException || exception is IOException
