@@ -26,7 +26,7 @@ namespace DependencyVisualizer
             }
         }
 
-        /// <summary>Выводит достижимый граф зависимостей или сообщение об ошибке.</summary>
+        /// <summary>Выводит порядок загрузки зависимостей или сообщение об ошибке.</summary>
         public static int Run(string[] args, TextWriter output, TextWriter error, HttpClient client)
         {
             const int HelpArgumentCount = 1;
@@ -45,7 +45,8 @@ namespace DependencyVisualizer
                         nodes = TestRepository.Read(reader);
                 }
                 else nodes = Repository.GetGraph(settings, client);
-                DependencyGraph.Build(nodes, settings.Package).Write(output);
+                DependencyGraph graph = DependencyGraph.Build(nodes, settings.Package);
+                DownloadOrder.Build(graph, settings.Package).Write(output, graph);
                 return 0;
             }
             catch (Exception exception) when (exception is ArgumentException || exception is IOException

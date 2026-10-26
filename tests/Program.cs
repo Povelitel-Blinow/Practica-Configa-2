@@ -9,7 +9,7 @@ using System.Text;
 
 namespace DependencyVisualizer.Tests
 {
-    /// <summary>Консольные проверки этапов 1–3 без сторонних библиотек.</summary>
+    /// <summary>Консольные проверки этапов 1–4 без сторонних библиотек.</summary>
     internal static class Program
     {
         private static int failures;
@@ -97,12 +97,13 @@ namespace DependencyVisualizer.Tests
         /// <summary>Запускает проверки успешного ввода и ошибок всех параметров.</summary>
         private static int Main()
         {
-            Check(ValidArgs(), 0, "bash: libc6 libc6-alt");
+            Check(ValidArgs(), 0, "Порядок загрузки:");
             string[] plain = ValidArgs();
             plain[3] = "https://example.org/Packages";
-            Check(plain, 0, "loader: libc6");
+            Check(plain, 0, "найден цикл");
             CheckIndex();
             CheckGraphs();
+            CheckDownloadOrders();
             Check(new string[] { "--help" }, 0, "--package");
             Check(new string[0], 1, "--package");
             Check(new string[] { "--unknown", "value" }, 1, "Неизвестная");
@@ -155,7 +156,7 @@ namespace DependencyVisualizer.Tests
                 args[1] = "A";
                 args[3] = path;
                 args[5] = "true";
-                Check(args, 0, "A: B");
+                Check(args, 0, "Порядок загрузки:" + Environment.NewLine + "B" + Environment.NewLine + "A");
                 args[1] = "bash";
                 Check(args, 1, "--package");
                 args[1] = "A";
@@ -196,6 +197,36 @@ namespace DependencyVisualizer.Tests
             graph = DependencyGraph.Build(PackageIndex.ReadGraph(new StringReader(index), "aa", "2"), "aa");
             Assert(graph.Nodes.Count == 3 && graph.Nodes["bb"][0] == "cc"
                 && graph.Missing.Contains("cc"), "apt version, transitivity and missing node");
+        }
+
+        /// <summary>Проверяет порядок, общие зависимости, циклы и неполный индекс.</summary>
+        private static void CheckDownloadOrders()
+        {
+            CheckOrder("A: B C\nB: D\nC: D\nD:\nZ:\n", "D B C A", false);
+            CheckOrder("A: B\nB: C\nC:\n", "C B A", false);
+            CheckOrder("A:\n", "A", false);
+            CheckOrder("A: B\nB: C\nC: A\n", "C B A", true);
+            CheckOrder("A: A\n", "A", true);
+            Dictionary<string, List<string>> source = new Dictionary<string, List<string>>();
+            source.Add("A", new List<string> { "B" });
+            DependencyGraph graph = DependencyGraph.Build(source, "A");
+            DownloadOrder order = DownloadOrder.Build(graph, "A");
+            StringWriter output = new StringWriter();
+            order.Write(output, graph);
+            Assert(string.Join(" ", order.Packages) == "B A" && !order.HasCycle, "missing order");
+            Assert(output.ToString().Contains("порядок неполный")
+                && output.ToString().Contains("B (нет данных в выбранном индексе)"), "missing warning");
+        }
+
+        /// <summary>Сравнивает порядок и проверяет предупреждение о цикле.</summary>
+        private static void CheckOrder(string source, string expected, bool cycle)
+        {
+            DependencyGraph graph = DependencyGraph.Build(TestRepository.Read(new StringReader(source)), "A");
+            DownloadOrder order = DownloadOrder.Build(graph, "A");
+            StringWriter output = new StringWriter();
+            order.Write(output, graph);
+            Assert(string.Join(" ", order.Packages) == expected, "order: " + expected);
+            Assert(order.HasCycle == cycle && output.ToString().Contains("найден цикл") == cycle, "cycle warning");
         }
 
         /// <summary>Создаёт корректный набор параметров.</summary>
