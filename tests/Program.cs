@@ -127,17 +127,17 @@ namespace DependencyVisualizer.Tests
         /// <summary>Проверяет пропуск, пустое значение и повтор каждой опции.</summary>
         private static void CheckOptions()
         {
-            const int PairLength = 2;
+            const int pairLength = 2;
             string[] valid = ValidArgs();
-            for (int i = 0; i < valid.Length; i += PairLength)
+            for (int i = 0; i < valid.Length; i += pairLength)
             {
-                string[] missing = new string[valid.Length - PairLength];
+                string[] missing = new string[valid.Length - pairLength];
                 Array.Copy(valid, 0, missing, 0, i);
-                Array.Copy(valid, i + PairLength, missing, i, missing.Length - i);
+                Array.Copy(valid, i + pairLength, missing, i, missing.Length - i);
                 Check(missing, 1, valid[i]);
                 CheckValue(i + 1, "", valid[i]);
                 CheckValue(i + 1, "  ", valid[i]);
-                string[] duplicate = new string[valid.Length + PairLength];
+                string[] duplicate = new string[valid.Length + pairLength];
                 Array.Copy(valid, duplicate, valid.Length);
                 duplicate[valid.Length] = valid[i];
                 duplicate[valid.Length + 1] = valid[i + 1];
